@@ -1,0 +1,6 @@
+langchain
+langgraph
+langchain_ollama
+streamlit
+requests
+beautifulsoup4

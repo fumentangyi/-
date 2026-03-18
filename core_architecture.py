@@ -13,6 +13,11 @@ from bs4 import BeautifulSoup
 import re
 import time
 from logger import AgentLogger
+import datetime
+
+# 获取当前时间的函数
+def get_timestamp():
+    return datetime.datetime.now().strftime("%H:%M:%S")
 
 # ========================================
 # 1. 系统状态定义（全流程可追溯）
@@ -31,6 +36,7 @@ class AgentState(TypedDict):
     search_results: str  # 联网搜索结果
     web_content: str  # 原始网页内容
     final_deliverable: str  # 最终交付成果（简要总结）
+    libu_doc_full: str  # 礼部完整文档
     # 工部审批相关字段
     gongbu_approval_request: str  # 工部审批申请
     optimized_plan: str  # 工部优化后的方案
@@ -297,7 +303,11 @@ def zhongshu_node(state: AgentState):
     核心职能：出令权 - 拆解任务、制定方案、明确分工
     """
     logger.log("中书省", "INFO", "开始制定执行方案")
-    print("=== 【中书省】正在制定执行方案 ===")
+    print(f"\n【{get_timestamp()}】🏛️ 中书省：开始执行任务")
+    print(f"【{get_timestamp()}】  ▶ 正在分析用户需求...")
+    print(f"【{get_timestamp()}】  ▶ 正在拆解任务为子任务...")
+    print(f"【{get_timestamp()}】  ▶ 正在制定执行方案...")
+    print(f"【{get_timestamp()}】  ▶ 正在明确各部门分工...")
 
     user_task = state["user_task"]
     loop_count = state["loop_count"]
@@ -352,19 +362,27 @@ def menxia_audit_node(state: AgentState):
 
     if execution_stage == "plan":
         logger.log("门下省", "INFO", "开始审核中书省的方案")
-        print("=== 【门下省】正在审核中书省的方案 ===")
+        print(f"\n【{get_timestamp()}】⚖️ 门下省：开始审核中书省的方案")
+        print(f"【{get_timestamp()}】  ▶ 正在审核方案完整性...")
+        print(f"【{get_timestamp()}】  ▶ 正在校验逻辑可行性...")
+        print(f"【{get_timestamp()}】  ▶ 正在核对用户需求对齐度...")
         user_task = state["user_task"]
         target_content = state["zhongshu_plan"]
         audit_type = "方案"
     elif execution_stage == "execute" and "libu_doc_result" in state:
         logger.log("门下省", "INFO", "开始审核礼部撰写的文档")
-        print("=== 【门下省】正在审核礼部撰写的文档 ===")
+        print(f"\n【{get_timestamp()}】⚖️ 门下省：开始审核礼部文档")
+        print(f"【{get_timestamp()}】  ▶ 正在审核文档格式...")
+        print(f"【{get_timestamp()}】  ▶ 正在校验内容准确性...")
+        print(f"【{get_timestamp()}】  ▶ 正在确认交付标准...")
         user_task = state["user_task"]
         target_content = state["libu_doc_result"]
         audit_type = "礼部文档"
     else:
         logger.log("门下省", "INFO", "开始终审尚书省的成果")
-        print("=== 【门下省】正在终审尚书省的成果 ===")
+        print(f"\n【{get_timestamp()}】⚖️ 门下省：开始终审执行成果")
+        print(f"【{get_timestamp()}】  ▶ 正在终审成果质量...")
+        print(f"【{get_timestamp()}】  ▶ 正在验证最终交付标准...")
         user_task = state["user_task"]
         target_content = state["shangshu_result"]
         audit_type = "成果"
@@ -426,7 +444,10 @@ def menxia_audit_node(state: AgentState):
                 
                 # 更新六部执行结果
                 liubo_results = state.get("liubo_results", {})
-                liubo_results["礼部"] = f"完成文档撰写并审核通过：{state['libu_doc_result'][:100]}..."
+                liubo_results["礼部"] = f"完成文档撰写并审核通过"
+
+                # 保存完整的礼部文档
+                result["libu_doc_full"] = state["libu_doc_full"]
                 
             except Exception as e:
                 logger.log("门下省", "ERROR", f"生成最终交付成果失败: {e}")
@@ -462,27 +483,29 @@ def shangshu_execute_node(state: AgentState):
     尚书省：执行总调度Agent
     核心职能：执行权 - 调度六部、管控进度、汇总成果
     """
-    logger.log("尚书省", "INFO", "开始调度六部执行任务")
-    print("=== 【尚书省】正在调度六部执行任务 ===")
+    logger.log("尚书省", "INFO", "开始调度执行任务")
+    print(f"\n【{get_timestamp()}】🏛️ 尚书省：开始调度执行任务")
+    print(f"【{get_timestamp()}】  ▶ 正在解析执行方案...")
+    print(f"【{get_timestamp()}】  ▶ 正在调度户部（数据资源）...")
+    print(f"【{get_timestamp()}】  ▶ 正在调度礼部（文档撰写）...")
+    print(f"【{get_timestamp()}】  ▶ 正在调度工部（技术实现）...")
+    print(f"【{get_timestamp()}】  ▶ 正在汇总执行成果...")
 
     zhongshu_plan = state["zhongshu_plan"]
 
     prompt = f"""
-你是中国古代三省六部制中的【尚书省执行总调度Agent】，拥有最高的执行调度权。
+你是任务执行总调度Agent，负责协调完成用户任务。
 
-你的核心职责是承接门下省审核通过的方案，统筹调度下辖六部Agent（吏、户、礼、兵、刑、工），完成任务执行。
-
-中书省的执行方案：
+中书省执行方案：
 {zhongshu_plan}
 
 工作要求：
-1. 严格按照执行方案，把子任务分发给对应的六部Agent
-2. 协调跨部门的协作，跟进每个部门的执行进度
-3. 汇总整合所有部门的成果，形成完整的最终交付物
-4. 明确各部门的执行成果和交付情况
+1. 按照方案执行任务
+2. 协调各环节工作
+3. 汇总最终成果
 
 输出要求：
-输出完整的执行成果汇总，包含各部门的执行情况和最终交付物。
+输出完整的执行结果，包含用户需要的答案。
 """
 
     try:
@@ -493,14 +516,11 @@ def shangshu_execute_node(state: AgentState):
         print(f"[ERROR] 尚书省LLM调用失败: {e}")
         execute_result = "执行失败：由于技术问题，无法完成任务执行。请检查模型连接并重试。"
 
-    # 模拟六部执行结果（后续会扩展为真实调用）
+    # 简化的六部执行结果
     liubo_results = {
-        "吏部": "完成人事管理与绩效评估",
         "户部": "完成数据管理资料归集",
         "礼部": "等待文档撰写",
-        "兵部": "完成攻坚任务执行",
-        "刑部": "完成合规校验错误修正",
-        "工部": "完成技术实现工程化"
+        "工部": "完成技术实现"
     }
 
     # 生成最终交付成果摘要
@@ -534,44 +554,40 @@ def shangshu_execute_node(state: AgentState):
 # ========================================
 
 def libu_node(state: AgentState):
-    """吏部：人事与绩效管理Agent"""
-    print("--- 【吏部】正在处理人事与绩效管理 ---")
-    prompt = "你是吏部Agent，负责人事管理与绩效评估。当前任务：配合尚书省的调度。"
-    result = llm.invoke(prompt)
-    return {"messages": [SystemMessage(content=f"吏部执行：{result}")]}
+    """吏部：已精简，跳过执行"""
+    return {"messages": [SystemMessage(content="吏部：已精简")]}
 
 def hubu_node(state: AgentState):
     """户部：数据与资源管理Agent"""
-    print("--- 【户部】正在处理数据与资源管理 ---")
+    print(f"\n  【{get_timestamp()}】📊 户部：正在处理数据与资源管理")
+    print(f"  【{get_timestamp()}】  ▶ 正在收集相关数据资料...")
+    print(f"  【{get_timestamp()}】  ▶ 正在整理资源清单...")
+    print(f"  【{get_timestamp()}】  ▶ 正在进行数据分析...")
     prompt = "你是户部Agent，负责数据管理与资料归集。当前任务：配合尚书省的调度。"
     result = llm.invoke(prompt)
     return {"messages": [SystemMessage(content=f"户部执行：{result}")]}
 
 def libu_doc_node(state: AgentState):
     """礼部：文档与沟通协同Agent - 负责撰写最终交付文档"""
-    print("--- 【礼部】正在撰写最终交付文档 ---")
+    print(f"\n  【{get_timestamp()}】📝 礼部：正在撰写最终交付文档")
+    print(f"  【{get_timestamp()}】  ▶ 正在整理执行成果...")
+    print(f"  【{get_timestamp()}】  ▶ 正在撰写专业文档...")
+    print(f"  【{get_timestamp()}】  ▶ 正在优化文档格式...")
 
     shangshu_result = state.get("shangshu_result", "")
     user_task = state["user_task"]
 
+    # 简化prompt，直接输出有用内容
     prompt = f"""
-你是中国古代三省六部制中的【礼部Agent】，负责文档撰写与格式排版。
+你是用户的AI助手，只做一件事：
+根据执行结果，给用户生成清晰、有用、可直接使用的答案。
+不要写部门执行过程、不要写古代政务、不要写总结报告。
+只输出用户真正需要的内容：
 
-尚书省的执行成果：
-{shangshu_result}
+用户任务：{user_task}
+执行结果：{shangshu_result}
 
-用户原始任务：
-{user_task}
-
-你的任务：
-1. 根据尚书省的执行成果，撰写一份专业的最终交付文档
-2. 文档要清晰、结构化、适合用户阅读
-3. 突出重点内容，避免过多技术细节
-4. 确保文档质量和可读性
-5. 文档将经过审核后才能交付给用户，请确保内容准确无误
-
-输出要求：
-直接输出最终文档内容，不要添加多余的说明。文档格式要专业、美观。
+直接输出有用答案，简洁、实用、无废话。
 """
 
     try:
@@ -583,26 +599,24 @@ def libu_doc_node(state: AgentState):
         doc_result = "文档撰写失败，请查看执行成果了解详情。"
 
     return {
-        "libu_doc_result": doc_result,
+        "libu_doc_full": doc_result,
         "messages": [SystemMessage(content=f"礼部文档：{doc_result}")]
     }
 
 def bingbu_node(state: AgentState):
-    """兵部：攻坚与专项执行Agent"""
-    print("--- 【兵部】正在处理攻坚与专项执行 ---")
-    prompt = "你是兵部Agent，负责攻坚任务执行。当前任务：配合尚书省的调度。"
-    result = llm.invoke(prompt)
-    return {"messages": [SystemMessage(content=f"兵部执行：{result}")]}
+    """兵部：已精简，跳过执行"""
+    return {"messages": [SystemMessage(content="兵部：已精简")]}
 
 def xingbu_node(state: AgentState):
-    """刑部：合规与纠错风控Agent"""
-    print("--- 【刑部】正在处理合规与纠错风控 ---")
-    prompt = "你是刑部Agent，负责合规校验与错误修正。当前任务：配合尚书省的调度。"
-    result = llm.invoke(prompt)
-    return {"messages": [SystemMessage(content=f"刑部执行：{result}")]}
+    """刑部：已精简，跳过执行"""
+    return {"messages": [SystemMessage(content="刑部：已精简")]}
 
 def gongbu_node(state: AgentState):
     """工部：技术与工程实现Agent（增强版 - 支持审批机制）"""
+    print(f"\n  【{get_timestamp()}】🔧 工部：正在处理技术与工程实现")
+    print(f"  【{get_timestamp()}】  ▶ 正在分析技术需求...")
+    print(f"  【{get_timestamp()}】  ▶ 正在制定技术方案...")
+    print(f"  【{get_timestamp()}】  ▶ 正在收集各部门技术反馈...")
     logger.log("工部", "INFO", "工部节点启动")
 
     # 收集各部门反馈
@@ -1108,14 +1122,26 @@ if __name__ == "__main__":
     # 运行系统
     result = app.invoke(initial_state)
 
-    # 输出最终结果
+    # 输出最终结果 - 简洁版
+    print("\n")
     print("=" * 80)
-    print("系统最终输出")
+    print("【最终交付成果】")
     print("=" * 80)
-    print(f"用户任务：{result['user_task']}")
-    print(f"\n中书省方案：\n{result['zhongshu_plan']}")
-    print(f"\n门下省审核结果：\n{result['menxia_audit_result']}")
-    print(f"\n尚书省执行成果：\n{result['shangshu_result']}")
-    print(f"\n系统反思报告：\n{result.get('reflection_report', '暂无反思报告')}")
-    print(f"\n驳回循环次数：{result['loop_count']}")
+    print(f"\n📋 用户任务：{result['user_task']}\n")
+
+    # 显示核心要点
+    final_deliverable = result.get('final_deliverable', '暂无最终交付成果')
+    print("【核心要点】")
+    print(final_deliverable)
+
+    # 显示完整的礼部文档
+    libu_doc_full = result.get('libu_doc_full', '')
+    if libu_doc_full:
+        print("\n" + "-" * 60)
+        print("【完整报告 - 礼部撰写】")
+        print("-" * 60)
+        print(libu_doc_full)
+
+    print("\n" + "=" * 80)
+    print("【执行完成】")
     print("=" * 80)

@@ -3,7 +3,7 @@
 阶段1：定死核心骨架，跑通完整闭环
 """
 
-from typing import TypedDict, Annotated, Sequence
+from typing import TypedDict, Annotated, Sequence, List, Dict
 from langchain_ollama import OllamaLLM
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
@@ -14,6 +14,7 @@ import re
 import time
 from logger import AgentLogger
 import datetime
+from memory import init_memory_manager, get_memory_manager
 
 # 获取当前时间的函数
 def get_timestamp():
@@ -45,6 +46,9 @@ class AgentState(TypedDict):
     user_confirmation_result: str  # 用户确认结果
     approval_timeout: bool  # 是否超时
     department_feedback: dict  # 各部门反馈
+    # 新增短期记忆字段
+    short_term_memory: List[Dict]      # 记忆列表
+    memory_summary: str                # 记忆摘要
 
 # ========================================
 # 2. 初始化本地大模型
@@ -309,12 +313,18 @@ def zhongshu_node(state: AgentState):
     print(f"【{get_timestamp()}】  ▶ 正在制定执行方案...")
     print(f"【{get_timestamp()}】  ▶ 正在明确各部门分工...")
 
+    memory_mgr = get_memory_manager()
     user_task = state["user_task"]
     loop_count = state["loop_count"]
     search_results = state.get("search_results", "")
+    
+    # ⭐ 获取记忆上下文
+    memory_context = memory_mgr.get_memory_context(query_type="decision", top_k=5)
 
     prompt = f"""
 你是中国古代三省六部制中的【中书省决策规划Agent】，拥有最高的政令制定权。
+
+{memory_context}
 
 你的核心职责是接收用户的原始任务，制定科学、可落地、权责清晰的《任务执行总方案》。
 
@@ -339,6 +349,16 @@ def zhongshu_node(state: AgentState):
     try:
         plan = llm.invoke(prompt)
         logger.log("中书省", "INFO", f"方案制定完成，长度: {len(plan)}")
+        
+        # ⭐ 保存记忆
+        memory_mgr.add_memory(
+            content=f"制定方案核心：{plan[:80]}",
+            stage="decision",
+            source="zhongshu",
+            importance=4,
+            key_points=memory_mgr.extract_key_points(plan, max_points=3)
+        )
+        
     except Exception as e:
         logger.log("中书省", "ERROR", f"LLM调用失败: {e}")
         print(f"[ERROR] 中书省LLM调用失败: {e}")
@@ -359,6 +379,9 @@ def menxia_audit_node(state: AgentState):
     """
     execution_stage = state["execution_stage"]
     loop_count = state["loop_count"]
+    
+    # ⭐ 初始化记忆管理器
+    memory_mgr = get_memory_manager()
 
     if execution_stage == "plan":
         logger.log("门下省", "INFO", "开始审核中书省的方案")
@@ -387,8 +410,13 @@ def menxia_audit_node(state: AgentState):
         target_content = state["shangshu_result"]
         audit_type = "成果"
 
+    # ⭐ 获取记忆上下文
+    memory_context = memory_mgr.get_memory_context(query_type="audit", top_k=5)
+
     prompt = f"""
 你是中国古代三省六部制中的【门下省审核校验Agent】，拥有最高的封驳审核权。
+
+{memory_context}
 
 你的核心职责是审核中书省的{audit_type}/尚书省的最终{audit_type}，判断是否符合用户需求、是否合理可落地、是否有逻辑漏洞。
 
@@ -416,6 +444,15 @@ def menxia_audit_node(state: AgentState):
         logger.log("门下省", "ERROR", f"LLM调用失败: {e}")
         print(f"[ERROR] LLM调用失败: {e}")
         audit_result = "【驳回重审令】由于技术问题，审核无法完成，请重试。"
+
+    # ⭐ 保存记忆
+    memory_mgr.add_memory(
+        content=f"审核{audit_type}结果：{'通过' if '审核通过令' in audit_result else '驳回'}",
+        stage="audit",
+        source="menxia",
+        importance=3,
+        key_points=memory_mgr.extract_key_points(audit_result, max_points=2)
+    )
 
     # 判断审核结果
     if "审核通过令" in audit_result:
@@ -491,10 +528,18 @@ def shangshu_execute_node(state: AgentState):
     print(f"【{get_timestamp()}】  ▶ 正在调度工部（技术实现）...")
     print(f"【{get_timestamp()}】  ▶ 正在汇总执行成果...")
 
+    # ⭐ 初始化记忆管理器
+    memory_mgr = get_memory_manager()
+    
     zhongshu_plan = state["zhongshu_plan"]
+
+    # ⭐ 获取记忆上下文
+    memory_context = memory_mgr.get_memory_context(query_type="execution", top_k=5)
 
     prompt = f"""
 你是任务执行总调度Agent，负责协调完成用户任务。
+
+{memory_context}
 
 中书省执行方案：
 {zhongshu_plan}
@@ -515,6 +560,15 @@ def shangshu_execute_node(state: AgentState):
         logger.log("尚书省", "ERROR", f"LLM调用失败: {e}")
         print(f"[ERROR] 尚书省LLM调用失败: {e}")
         execute_result = "执行失败：由于技术问题，无法完成任务执行。请检查模型连接并重试。"
+
+    # ⭐ 保存记忆
+    memory_mgr.add_memory(
+        content=f"执行任务核心：{execute_result[:80]}",
+        stage="execution",
+        source="shangshu",
+        importance=4,
+        key_points=memory_mgr.extract_key_points(execute_result, max_points=3)
+    )
 
     # 简化的六部执行结果
     liubo_results = {
@@ -574,8 +628,14 @@ def libu_doc_node(state: AgentState):
     print(f"  【{get_timestamp()}】  ▶ 正在撰写专业文档...")
     print(f"  【{get_timestamp()}】  ▶ 正在优化文档格式...")
 
+    # ⭐ 初始化记忆管理器
+    memory_mgr = get_memory_manager()
+    
     shangshu_result = state.get("shangshu_result", "")
     user_task = state["user_task"]
+
+    # ⭐ 获取记忆上下文
+    memory_context = memory_mgr.get_memory_context(query_type="documentation", top_k=5)
 
     # 简化prompt，直接输出有用内容
     prompt = f"""
@@ -583,6 +643,8 @@ def libu_doc_node(state: AgentState):
 根据执行结果，给用户生成清晰、有用、可直接使用的答案。
 不要写部门执行过程、不要写古代政务、不要写总结报告。
 只输出用户真正需要的内容：
+
+{memory_context}
 
 用户任务：{user_task}
 执行结果：{shangshu_result}
@@ -597,6 +659,15 @@ def libu_doc_node(state: AgentState):
         logger.log("礼部", "ERROR", f"文档撰写失败: {e}")
         print(f"[ERROR] 礼部文档撰写失败: {e}")
         doc_result = "文档撰写失败，请查看执行成果了解详情。"
+
+    # ⭐ 保存记忆
+    memory_mgr.add_memory(
+        content=f"撰写文档核心：{doc_result[:80]}",
+        stage="documentation",
+        source="libu",
+        importance=3,
+        key_points=memory_mgr.extract_key_points(doc_result, max_points=2)
+    )
 
     return {
         "libu_doc_full": doc_result,
@@ -1116,8 +1187,14 @@ if __name__ == "__main__":
         "gongbu_approval_status": "",
         "user_confirmation_result": "",
         "approval_timeout": False,
-        "department_feedback": {}
+        "department_feedback": {},
+        # ⭐ 短期记忆相关初始状态
+        "short_term_memory": [],
+        "memory_summary": ""
     }
+
+    # ⭐ 初始化记忆管理器
+    memory_mgr = get_memory_manager()
 
     # 运行系统
     result = app.invoke(initial_state)
